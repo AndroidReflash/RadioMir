@@ -44,6 +44,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.system.exitProcess
 import androidx.media.app.NotificationCompat.MediaStyle
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 @UnstableApi
 class RadioService : MediaSessionService() {
@@ -53,7 +56,6 @@ class RadioService : MediaSessionService() {
     private lateinit var exoPlayer: ExoPlayer
     private val _mediaSession = MutableStateFlow<MediaSession?>(null)
     private val mediaSession: StateFlow<MediaSession?> = _mediaSession
-    private lateinit var notificationManager: NotificationManager
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying : StateFlow<Boolean> = _isPlaying
@@ -70,9 +72,7 @@ class RadioService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         notificationChannel()
-        setNotificationManager()
         buildPlayer()
-        setNotification()
         networkRepository = NetworkManager.getInstance(scope)
         scope.launch {
             networkRepository?.currentTrack?.collect {
@@ -113,31 +113,31 @@ class RadioService : MediaSessionService() {
         exoPlayer = ExoPlayer.Builder(this, renderersFactory).build()
         exoPlayer
             .addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                super.onIsPlayingChanged(isPlaying)
-                updateNotification()
-                _isPlaying.value = isPlaying
-            }
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                super.onPlaybackStateChanged(playbackState)
-                when (playbackState) {
-                    Player.STATE_IDLE -> {
-                        Log.e("StateState", "STATE_IDLE")
-                        setPlayer()
-                    }
-                    Player.STATE_BUFFERING -> {
-                        Log.e("StateState", "STATE_BUFFERING")
-                    }
-                    Player.STATE_READY -> {
-                        Log.e("StateState", "STATE_READY")
-                        exoPlayer.play()
-                    }
-                    Player.STATE_ENDED -> {
-                        Log.e("StateState", "STATE_ENDED")
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    super.onIsPlayingChanged(isPlaying)
+                    updateNotification()
+                    _isPlaying.value = isPlaying
+                }
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    super.onPlaybackStateChanged(playbackState)
+                    when (playbackState) {
+                        Player.STATE_IDLE -> {
+                            Log.e("StateState", "STATE_IDLE")
+                            setPlayer()
+                        }
+                        Player.STATE_BUFFERING -> {
+                            Log.e("StateState", "STATE_BUFFERING")
+                        }
+                        Player.STATE_READY -> {
+                            Log.e("StateState", "STATE_READY")
+                            exoPlayer.play()
+                        }
+                        Player.STATE_ENDED -> {
+                            Log.e("StateState", "STATE_ENDED")
+                        }
                     }
                 }
-            }
-        })
+            })
         setPlayer()
         setMediaSession(exoPlayer)
     }
@@ -194,23 +194,17 @@ class RadioService : MediaSessionService() {
         val forwardingPlayer = object : ForwardingPlayer(player) {
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
-                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .remove(Player.COMMAND_SEEK_TO_NEXT)
                     .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
                     .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                    .add(Player.COMMAND_PLAY_PAUSE)
-                    .add(Player.COMMAND_STOP)
                     .build()
             }
-            override fun seekToNext() {
-                super.seekToNext()
-                stopApp()
-            }
         }
-        val customStopCommand = SessionCommand(ACTION_STOP, Bundle.EMPTY)
+        val closeCommand = SessionCommand(Keywords.CloseAction.value, Bundle.EMPTY)
         val stopButton = CommandButton.Builder()
-            .setSessionCommand(customStopCommand)
-            .setIconResId(android.R.drawable.btn_radio)
+            .setSessionCommand(closeCommand)
+            .setIconResId(android.R.drawable.ic_menu_close_clear_cancel)
             .setDisplayName("Остановить")
             .setEnabled(true)
             .build()
@@ -218,6 +212,34 @@ class RadioService : MediaSessionService() {
             .setCustomLayout(listOf(stopButton))
             .setMediaButtonPreferences(listOf(stopButton))
             .setCallback(object : MediaSession.Callback{
+                override fun onConnect(
+                    session: MediaSession,
+                    controllerId: MediaSession.ControllerInfo
+                ): MediaSession.ConnectionResult {
+                    val connectionResult = super.onConnect(session, controllerId)
+                    val availableSessionCommands = connectionResult.availableSessionCommands
+                        .buildUpon()
+                        .add(closeCommand)
+                        .build()
+
+                    return MediaSession.ConnectionResult.accept(
+                        availableSessionCommands,
+                        connectionResult.availablePlayerCommands
+                    )
+                }
+                override fun onCustomCommand(
+                    session: MediaSession,
+                    controllerInfo: MediaSession.ControllerInfo,
+                    customCommand: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == Keywords.CloseAction.value) {
+                        stopSelf()
+                        stopApp()
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
+                    return super.onCustomCommand(session, controllerInfo, customCommand, args)
+                }
                 override fun onMediaButtonEvent(
                     session: MediaSession,
                     controllerInfo: MediaSession.ControllerInfo,
@@ -256,8 +278,10 @@ class RadioService : MediaSessionService() {
                 }
             })
             .setId(Keywords.PlayerId.value)
+            .setCustomLayout(listOf(stopButton))
         _mediaSession.value?.release()
         _mediaSession.value = session.build()
+        addSession(_mediaSession.value!!)
     }
     private fun stopApp(action: () -> Unit = {}){
         Handler(Looper.getMainLooper()).postDelayed({
@@ -268,19 +292,7 @@ class RadioService : MediaSessionService() {
         action()
     }
     private fun updateNotification() {
-        setMediaSession(exoPlayer)
-        notificationManager.notify(128, buildNotification())
-    }
-    private fun buildNotification(): Notification {
-        return NotificationCompat.Builder(this@RadioService, "128")
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setSmallIcon(R.drawable.baseline_radio_24)
-            .setCategory(Notification.CATEGORY_TRANSPORT)
-            .setStyle(
-                MediaStyleNotificationHelper.MediaStyle(mediaSession.value!!)
-            )
-            .setOngoing(true)
-            .build()
+        addSession(_mediaSession.value!!)
     }
 
     private fun notificationChannel(){
@@ -291,13 +303,5 @@ class RadioService : MediaSessionService() {
         )
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
-    }
-
-    private fun setNotification(){
-        startForeground(128, buildNotification())
-    }
-
-    private fun setNotificationManager(){
-        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
 }
