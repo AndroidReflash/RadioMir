@@ -6,35 +6,34 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
-import android.util.Log
-import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.media3.common.util.UnstableApi
+import coil3.ImageLoader
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.example.radiomir.RadioService
-import com.example.radiomir.constants.Url
 import com.example.radiomir.dataclasses.TrackInfoDTO
+import com.example.radiomir.player.AudioVisualizerConverter
+import com.example.radiomir.repository.`interface`.NetworkRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import com.example.radiomir.player.AudioVisualizerConverter
-import com.example.radiomir.repository.`interface`.NetworkRepository
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @UnstableApi
 class RadioScreenViewModel(
     appContext: Context,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    networkRepository: NetworkRepository
 ): ViewModel() {
     @SuppressLint("StaticFieldLeak")
     private val context = appContext.applicationContext
@@ -53,14 +52,14 @@ class RadioScreenViewModel(
     private val _brightness = MutableStateFlow(0.0f)
     val brightness : StateFlow<Float> = _brightness
 
-
+    val imageLoader = ImageLoader.Builder(context)
+        .components {
+            add(OkHttpNetworkFetcherFactory(callFactory = { networkRepository.getCustomSslOkHttpClient() }))
+        }
+        .build()
     val currentTrack = serviceBound.flatMapLatest { bound ->
-        if (bound && playerService != null) playerService!!.networkRepository?.currentTrack ?:
-        MutableStateFlow(TrackInfoDTO()) else flowOf(TrackInfoDTO())
+        if (bound && playerService != null) networkRepository.currentTrack else flowOf(TrackInfoDTO())
     }.stateIn(scope, SharingStarted.Companion.Eagerly, TrackInfoDTO())
-
-    private val _picture = MutableStateFlow( Url.AlbumEndPoint.value)
-    val picture: StateFlow<String> = _picture
 
     init {
         scope.launch(Dispatchers.Main) {
@@ -79,11 +78,6 @@ class RadioScreenViewModel(
             }
             launch {
                 pulsing()
-            }
-            launch {
-                currentTrack.collect {
-                    _picture.value = Url.AlbumEndPoint.value + it.album
-                }
             }
         }
     }

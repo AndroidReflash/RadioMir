@@ -6,7 +6,6 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,14 +47,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
-import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
+import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.example.radiomir.constants.Url
 import com.example.radiomir.viewModel.RadioScreenViewModel
 import com.radiomir.R
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
@@ -66,14 +65,13 @@ fun Interface(viewModel: RadioScreenViewModel){
     val equalizer by viewModel.equalizerArray.collectAsState()
     val brightness by viewModel.brightness.collectAsState()
     val trackInfo by viewModel.currentTrack.collectAsState()
-    val picture by viewModel.picture.collectAsState()
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Background(brightness)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
         ) {
-            TrackCover(picture)
+            TrackCover(trackInfo.album, viewModel.imageLoader)
             Spacer(Modifier.height(20.dp))
             MarqueeTrackTextBounce(
                 "${trackInfo.artist} - ${trackInfo.track}",
@@ -173,15 +171,13 @@ fun AudioVisualizer(
 
 @OptIn(UnstableApi::class)
 @Composable
-fun TrackCover(picture: String, modifier: Modifier = Modifier) {
-    // Проверяем, валидный ли URL. Если нет — отдаем null, чтобы сработал error/fallback
+fun TrackCover(picture: String, imageLoader: ImageLoader, modifier: Modifier = Modifier) {
     val isValidUrl = picture.isNotEmpty() && picture != Url.AlbumEndPoint.value
     val imageModel = if (isValidUrl) picture else null
-
     AsyncImage(
         model = imageModel,
+        imageLoader = imageLoader,
         contentDescription = "Обложка трека",
-        placeholder = painterResource(R.drawable.radiomir),
         error = painterResource(R.drawable.radiomir),
         fallback = painterResource(R.drawable.radiomir),
         modifier = modifier.size(200.dp).clip(RoundedCornerShape(100.dp)),
@@ -196,7 +192,7 @@ fun MarqueeTrackTextBounce(
     fontSize: TextUnit,
     color: Color
 ) {
-    val scrollSpeed = 50f // Пикселей в секунду
+    val scrollSpeed = 50f
     var boxWidthPx by remember { mutableStateOf(0f) }
     val scroll = remember { Animatable(0f) }
 
@@ -211,7 +207,6 @@ fun MarqueeTrackTextBounce(
     }
     val textWidthPx = textLayoutResult.size.width.toFloat()
 
-    // Максимальное смещение — это то, насколько текст шире контейнера
     val maxScroll = (textWidthPx - boxWidthPx).coerceAtLeast(0f)
     val needsScroll = maxScroll > 0f
 
@@ -219,18 +214,16 @@ fun MarqueeTrackTextBounce(
         if (needsScroll && boxWidthPx > 0f) {
             val duration = (maxScroll / scrollSpeed * 1000).toInt()
 
-            while (true) {
-                delay(2000) // Пауза перед началом движения
+            while (isActive) {
+                delay(2000)
 
-                // Едем влево (показываем правый край)
                 scroll.animateTo(
                     targetValue = maxScroll,
                     animationSpec = tween(duration, easing = LinearOutSlowInEasing)
                 )
 
-                delay(2000) // Пауза на правом краю
+                delay(2000)
 
-                // Едем вправо (возвращаемся к началу)
                 scroll.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(duration, easing = LinearOutSlowInEasing)

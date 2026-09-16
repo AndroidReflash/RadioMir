@@ -8,6 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import com.example.radiomir.repository.NetworkManager
+import com.example.radiomir.repository.`interface`.NetworkRepository
 import com.example.radiomir.viewModel.RadioScreenViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +20,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val radioScreenViewModel = RadioScreenViewModel(this@MainActivity, scope)
+        val networkRepository = NetworkManager.getInstance(this@MainActivity.applicationContext, scope)
+        val radioScreenViewModel = RadioScreenViewModel(this@MainActivity, scope, networkRepository)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
                 android.graphics.Color.TRANSPARENT,

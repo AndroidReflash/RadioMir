@@ -1,19 +1,14 @@
 package com.example.radiomir
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.util.Log
 import android.view.KeyEvent
-import androidx.core.app.NotificationCompat
 import androidx.core.net.toUri
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
@@ -25,15 +20,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
-import androidx.media3.ui.PlayerNotificationManager.ACTION_STOP
+import androidx.media3.session.SessionResult
 import com.example.radiomir.constants.Keywords
 import com.example.radiomir.constants.Url
 import com.example.radiomir.player.AudioProcessorWithCallback
 import com.example.radiomir.player.CustomRenderersFactory
 import com.example.radiomir.repository.NetworkManager
 import com.example.radiomir.repository.`interface`.NetworkRepository
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.radiomir.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,10 +39,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.system.exitProcess
-import androidx.media.app.NotificationCompat.MediaStyle
-import androidx.media3.session.SessionResult
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
 
 @UnstableApi
 class RadioService : MediaSessionService() {
@@ -73,7 +65,7 @@ class RadioService : MediaSessionService() {
         super.onCreate()
         notificationChannel()
         buildPlayer()
-        networkRepository = NetworkManager.getInstance(scope)
+        networkRepository = NetworkManager.getInstance(this@RadioService.applicationContext, scope)
         scope.launch {
             networkRepository?.currentTrack?.collect {
                 withContext(Dispatchers.Main){
@@ -122,18 +114,14 @@ class RadioService : MediaSessionService() {
                     super.onPlaybackStateChanged(playbackState)
                     when (playbackState) {
                         Player.STATE_IDLE -> {
-                            Log.e("StateState", "STATE_IDLE")
                             setPlayer()
                         }
                         Player.STATE_BUFFERING -> {
-                            Log.e("StateState", "STATE_BUFFERING")
                         }
                         Player.STATE_READY -> {
-                            Log.e("StateState", "STATE_READY")
                             exoPlayer.play()
                         }
                         Player.STATE_ENDED -> {
-                            Log.e("StateState", "STATE_ENDED")
                         }
                     }
                 }
